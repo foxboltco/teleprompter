@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Prompter">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Prompter</title>
+<style>
+:root{
+  --font:"Helvetica Neue",Helvetica,Arial,sans-serif;
+  --size:72; --width:80; --lh:1.4;
+  --accent:#0a84ff; --panel:#1c1c1e; --line:#38383a;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:#000;color:#fff;
+  font-family:-apple-system,system-ui,sans-serif;overscroll-behavior:none;
+  -webkit-text-size-adjust:100%}
+button,select{font:inherit;color:#fff}
+button{background:#2c2c2e;border:0;border-radius:10px;min-height:44px;min-width:44px;padding:0 14px;cursor:pointer}
+button:active{background:#3a3a3c}
+button.on{background:var(--accent)}
+button.primary{background:#30d158;color:#000;font-weight:700}
+select{background:#2c2c2e;border:0;border-radius:10px;min-height:44px;padding:0 10px}
+
+/* ---------- Editor ---------- */
+#edit{position:fixed;inset:0;display:flex;flex-direction:column;background:#111}
+body.playing #edit{display:none}
+#tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+  padding:calc(env(safe-area-inset-top) + 10px) 14px 10px;background:var(--panel);border-bottom:1px solid var(--line)}
+#tools .sep{width:1px;height:28px;background:var(--line);margin:0 4px}
+.sw{width:34px;height:34px;min-width:34px;min-height:34px;padding:0;border-radius:50%;border:2px solid #555}
+#editor{flex:1;overflow-y:auto;padding:28px max(24px,12vw) 60vh;outline:none;
+  font-family:var(--font);font-size:30px;line-height:1.45;color:#fff;
+  -webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+#editor:empty:before{content:"Type or paste your script here…";color:#666}
+#editor blockquote{margin:0 0 0 1em;padding-left:.8em;border-left:3px solid #555}
+
+/* ---------- Prompter ---------- */
+#prompter{position:fixed;inset:0;background:#000;display:none}
+body.playing #prompter{display:block}
+#stage{position:absolute;inset:0}
+#scroller{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#scroller::-webkit-scrollbar{display:none}
+#column{width:calc(var(--width) * 1vw);margin:0 auto;padding:38vh 0 90vh}
+#content{font-family:var(--font);font-size:calc(var(--size) * 1px);line-height:var(--lh);
+  color:#fff;overflow-wrap:break-word}
+#content h1{font-size:1.4em;margin:.3em 0}
+#content h2{font-size:1.2em;margin:.3em 0}
+#content blockquote{margin:0 0 0 1em;padding-left:.8em;border-left:.08em solid #777}
+#guide{position:absolute;left:0;right:0;top:38vh;height:calc(var(--size) * var(--lh) * 1px);
+  border-top:2px solid rgba(255,214,10,.55);border-bottom:2px solid rgba(255,214,10,.55);
+  background:rgba(255,214,10,.07);pointer-events:none;z-index:2}
+#count{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+  font-size:30vh;font-weight:800;color:#ffd60a;background:rgba(0,0,0,.6);z-index:5;pointer-events:none}
+#prog{position:fixed;left:0;top:0;height:3px;width:0;background:var(--accent);z-index:30}
+
+#hud{position:fixed;left:50%;transform:translateX(-50%);
+  bottom:max(12px,env(safe-area-inset-bottom));width:min(960px,calc(100vw - 24px));
+  background:rgba(28,28,30,.94);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);
+  border-radius:20px;padding:12px 14px;z-index:20;display:grid;gap:12px}
+#hud.hide{display:none}
+#hud .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#hud .row .grow{flex:1}
+#hud .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px 18px}
+#hud label{display:block;font-size:13px;color:#aaa;margin-bottom:4px}
+#hud label b{color:#fff;float:right;font-weight:600}
+#hud input[type=range]{width:100%;height:34px}
+#hudToggle{position:fixed;right:14px;top:max(14px,env(safe-area-inset-top));z-index:25;
+  background:rgba(44,44,46,.85);border-radius:50%;width:48px;height:48px;padding:0;font-size:22px;display:none}
+#hudToggle.show{display:block}
+</style>
+</head>
+<body>
+
+<!-- ============ EDITOR ============ -->
+<div id="edit">
+  <div id="tools">
+    <button id="bPlayEdit" class="primary">▶ Prompter</button>
+    <span class="sep"></span>
+    <button data-cmd="bold"><b>B</b></button>
+    <button data-cmd="italic"><i>I</i></button>
+    <button data-cmd="underline"><u>U</u></button>
+    <button data-cmd="strikeThrough"><s>S</s></button>
+    <span class="sep"></span>
+    <button data-cmd="justifyLeft">⇤</button>
+    <button data-cmd="justifyCenter">↔</button>
+    <button data-cmd="justifyRight">⇥</button>
+    <span class="sep"></span>
+    <button class="sw" data-cmd="foreColor" data-val="#ffffff" style="background:#fff" title="White"></button>
+    <button class="sw" data-cmd="foreColor" data-val="#ffd60a" style="background:#ffd60a" title="Yellow"></button>
+    <button class="sw" data-cmd="foreColor" data-val="#ff453a" style="background:#ff453a" title="Red"></button>
+    <button class="sw" data-cmd="foreColor" data-val="#30d158" style="background:#30d158" title="Green"></button>
+    <button class="sw" data-cmd="foreColor" data-val="#64d2ff" style="background:#64d2ff" title="Cyan"></button>
+    <button class="sw" data-cmd="foreColor" data-val="#ff9f0a" style="background:#ff9f0a" title="Orange"></button>
+    <button data-cmd="hiliteColor" data-val="#ffd60a" data-cmd2="foreColor" data-val2="#000000">Highlight</button>
+    <button data-cmd="hiliteColor" data-val="transparent" data-cmd2="foreColor" data-val2="#ffffff">No highlight</button>
+    <span class="sep"></span>
+    <button data-cmd="formatBlock" data-val="H1">H1</button>
+    <button data-cmd="formatBlock" data-val="DIV">Normal</button>
+    <button data-cmd="removeFormat">Clear fmt</button>
+    <span class="sep"></span>
+    <button data-cmd="undo">↶</button>
+    <button data-cmd="redo">↷</button>
+    <select id="fontSel2" aria-label="Font"></select>
+    <button id="bNew">New</button>
+  </div>
+  <div id="editor" contenteditable="true" spellcheck="true"></div>
+</div>
+
+<!-- ============ PROMPTER ============ -->
+<div id="prompter">
+  <div id="stage">
+    <div id="guide"></div>
+    <div id="scroller"><div id="column"><div id="content"></div></div></div>
+    <div id="count"></div>
+  </div>
+  <div id="prog"></div>
+  <button id="hudToggle">⚙︎</button>
+  <div id="hud">
+    <div class="row">
+      <button id="bBack">✎ Edit</button>
+      <button id="bRestart">⏮ Top</button>
+      <button id="bPlay" class="primary">▶ Play</button>
+      <span class="grow"></span>
+      <button id="tMirror" class="tog">⇋ Mirror</button>
+      <button id="tFlip" class="tog">⟲ Rotate 180°</button>
+      <button id="tGuide" class="tog">Guide</button>
+      <button id="tCount" class="tog">3‑2‑1</button>
+      <button id="bHide">⌄</button>
+    </div>
+    <div class="grid">
+      <div><label>Speed <b id="vSpeed"></b></label><input type="range" id="sSpeed" min="5" max="400" step="1"></div>
+      <div><label>Text size <b id="vSize"></b></label><input type="range" id="sSize" min="24" max="220" step="1"></div>
+      <div><label>Column width <b id="vWidth"></b></label><input type="range" id="sWidth" min="25" max="100" step="1"></div>
+      <div><label>Line spacing <b id="vLh"></b></label><input type="range" id="sLh" min="1" max="2.2" step="0.05"></div>
+      <div><label>Font</label><select id="fontSel" style="width:100%"></select></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const FONTS = [
+    ['Helvetica Neue', '"Helvetica Neue", Helvetica, Arial, sans-serif'],
+    ['Arial', 'Arial, sans-serif'],
+    ['Avenir Next', '"Avenir Next", Avenir, sans-serif'],
+    ['Verdana', 'Verdana, sans-serif'],
+    ['Trebuchet MS', '"Trebuchet MS", sans-serif'],
+    ['Gill Sans', '"Gill Sans", sans-serif'],
+    ['Optima', 'Optima, sans-serif'],
+    ['Futura', 'Futura, sans-serif'],
+    ['Georgia', 'Georgia, serif'],
+    ['Times New Roman', '"Times New Roman", Times, serif'],
+    ['Palatino', 'Palatino, "Palatino Linotype", serif'],
+    ['Baskerville', 'Baskerville, serif'],
+    ['Courier New', '"Courier New", monospace'],
+    ['Menlo', 'Menlo, monospace'],
+    ['American Typewriter', '"American Typewriter", serif'],
+    ['System (San Francisco)', '-apple-system, system-ui, sans-serif'],
+  ];
+  const DEFAULTS = { font: FONTS[0][1], size: 72, width: 80, speed: 60, lh: 1.4,
+                     mirror: false, flip: false, guide: true, countdown: true };
+  let S = { ...DEFAULTS };
+  try { S = { ...DEFAULTS, ...JSON.parse(localStorage.getItem('tp_settings') || '{}') }; } catch (e) {}
+  const saveSettings = () => { try { localStorage.setItem('tp_settings', JSON.stringify(S)); } catch (e) {} };
+
+  const editor = $('#editor'), scroller = $('#scroller'), content = $('#content');
+  const root = document.documentElement;
+
+  /* ---------- fonts ---------- */
+  for (const sel of [$('#fontSel'), $('#fontSel2')]) {
+    FONTS.forEach(([name, css]) => {
+      const o = document.createElement('option'); o.value = css; o.textContent = name; sel.appendChild(o);
+    });
+    sel.addEventListener('change', () => { S.font = sel.value; apply(); });
+  }
+
+  /* ---------- apply settings ---------- */
+  function apply() {
+    root.style.setProperty('--font', S.font);
+    root.style.setProperty('--size', S.size);
+    root.style.setProperty('--width', S.width);
+    root.style.setProperty('--lh', S.lh);
+    const t = [];
+    if (S.flip) t.push('rotate(180deg)');
+    if (S.mirror) t.push('scaleX(-1)');
+    $('#stage').style.transform = t.join(' ') || 'none';
+    $('#guide').style.display = S.guide ? 'block' : 'none';
+    $('#fontSel').value = S.font; $('#fontSel2').value = S.font;
+    $('#sSpeed').value = S.speed; $('#vSpeed').textContent = Math.round(S.speed);
+    $('#sSize').value = S.size;   $('#vSize').textContent = Math.round(S.size);
+    $('#sWidth').value = S.width; $('#vWidth').textContent = Math.round(S.width) + '%';
+    $('#sLh').value = S.lh;       $('#vLh').textContent = (+S.lh).toFixed(2);
+    $('#tMirror').classList.toggle('on', S.mirror);
+    $('#tFlip').classList.toggle('on', S.flip);
+    $('#tGuide').classList.toggle('on', S.guide);
+    $('#tCount').classList.toggle('on', S.countdown);
+    saveSettings();
+  }
+  [['sSpeed','speed'],['sSize','size'],['sWidth','width'],['sLh','lh']].forEach(([id, key]) =>
+    $('#' + id).addEventListener('input', e => { S[key] = parseFloat(e.target.value); apply(); }));
+  [['tMirror','mirror'],['tFlip','flip'],['tGuide','guide'],['tCount','countdown']].forEach(([id, key]) =>
+    $('#' + id).addEventListener('click', () => { S[key] = !S[key]; apply(); }));
+
+  /* ---------- sanitising (used for paste) ---------- */
+  const KEEP = new Set(['B','STRONG','I','EM','U','S','STRIKE','BR','P','DIV','H1','H2','H3','UL','OL','LI','BLOCKQUOTE']);
+  const BLOCKY = new Set(['TABLE','TBODY','TR','TD','TH','SECTION','ARTICLE','HEADER','FOOTER','PRE','H4','H5','H6']);
+  const SKIP = new Set(['SCRIPT','STYLE','META','LINK','HEAD','TITLE','NOSCRIPT']);
+  function clean(src) {
+    const out = document.createDocumentFragment();
+    src.childNodes.forEach(n => {
+      if (n.nodeType === 3) { out.append(n.textContent); return; }
+      if (n.nodeType !== 1 || SKIP.has(n.tagName)) return;
+      const tag = n.tagName;
+      const el = document.createElement(KEEP.has(tag) ? tag.toLowerCase() : BLOCKY.has(tag) ? 'div' : 'span');
+      const st = n.style || {};
+      let inner = el;
+      const wrap = t => { const w = document.createElement(t); inner.appendChild(w); inner = w; };
+      const fw = st.fontWeight;
+      if (fw && (fw === 'bold' || parseInt(fw, 10) >= 600) && !/^(B|STRONG)$/.test(tag)) wrap('b');
+      if (st.fontStyle === 'italic' && !/^(I|EM)$/.test(tag)) wrap('i');
+      if ((st.textDecoration || '').includes('underline') && tag !== 'U') wrap('u');
+      if (st.textAlign && /^(center|right)$/.test(st.textAlign)) el.style.textAlign = st.textAlign;
+      inner.appendChild(clean(n));
+      out.appendChild(el);
+    });
+    return out;
+  }
+  editor.addEventListener('paste', e => {
+    const html = e.clipboardData && e.clipboardData.getData('text/html');
+    if (!html) return;              // plain text pastes normally
+    e.preventDefault();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const d = document.createElement('div'); d.appendChild(clean(doc.body));
+    document.execCommand('insertHTML', false, d.innerHTML);
+  });
+
+  /* ---------- editor toolbar ---------- */
+  $('#tools').addEventListener('pointerdown', e => { if (e.target.closest('button')) e.preventDefault(); });
+  $('#tools').addEventListener('click', e => {
+    const b = e.target.closest('button[data-cmd]'); if (!b) return;
+    editor.focus();
+    document.execCommand('styleWithCSS', false, true);
+    document.execCommand(b.dataset.cmd, false, b.dataset.val || null);
+    if (b.dataset.cmd2) document.execCommand(b.dataset.cmd2, false, b.dataset.val2);
+    saveScript();
+  });
+  let saveT;
+  function saveScript() { clearTimeout(saveT); saveT = setTimeout(() => {
+    try { localStorage.setItem('tp_script', editor.innerHTML); } catch (e) {} }, 250); }
+  editor.addEventListener('input', saveScript);
+  $('#bNew').addEventListener('click', () => {
+    if (confirm('Clear the whole script?')) { editor.innerHTML = ''; saveScript(); editor.focus(); }
+  });
+  let stored = null; try { stored = localStorage.getItem('tp_script'); } catch (e) {}
+  editor.innerHTML = stored !== null ? stored :
+    '<h1>Welcome to Prompter</h1><div>Replace this text with your script. Use the toolbar for <b>bold</b>, <i>italic</i>, <u>underline</u>, colors and highlights.</div><div><br></div><div>Tap <b>▶ Prompter</b>, then tap the text (or press Space on a keyboard) to start scrolling.</div>';
+
+  /* ---------- prompter engine ---------- */
+  let playing = false, pos = 0, lastT = 0, raf = 0, touching = false, lastSet = 0, cd = null, wl = null;
+
+  async function lock() { try { if (navigator.wakeLock) wl = await navigator.wakeLock.request('screen'); } catch (e) {} }
+  function unlock() { try { wl && wl.release(); } catch (e) {} wl = null; }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && document.body.classList.contains('playing')) lock();
+  });
+
+  function setPlaying(v) {
+    playing = v;
+    $('#bPlay').textContent = v ? '⏸ Pause' : '▶ Play';
+    if (v) lock();
+  }
+  function cancelCountdown() {
+    if (cd) { clearInterval(cd); cd = null; $('#count').style.display = 'none'; return true; }
+    return false;
+  }
+  function startPlay() {
+    const max = scroller.scrollHeight - scroller.clientHeight;
+    if (scroller.scrollTop >= max - 2) { scroller.scrollTop = 0; pos = 0; }
+    if (S.countdown && scroller.scrollTop < 5) {
+      let n = 3; const c = $('#count'); c.style.display = 'flex'; c.textContent = n;
+      cd = setInterval(() => {
+        n--;
+        if (n <= 0) { cancelCountdown(); setPlaying(true); } else c.textContent = n;
+      }, 1000);
+      return;
+    }
+    setPlaying(true);
+  }
+  function togglePlay() {
+    if (cancelCountdown()) return;
+    playing ? setPlaying(false) : startPlay();
+  }
+
+  function tick(t) {
+    raf = requestAnimationFrame(tick);
+    const dt = Math.min((t - lastT) / 1000, 0.1); lastT = t;
+    const max = scroller.scrollHeight - scroller.clientHeight;
+    if (touching || !playing) {
+      pos = scroller.scrollTop;
+    } else {
+      if (Math.abs(scroller.scrollTop - lastSet) > 2) pos = scroller.scrollTop; // user scrolled
+      pos += S.speed * dt;
+      if (pos >= max) { pos = max; setPlaying(false); }
+      scroller.scrollTop = pos;
+      lastSet = scroller.scrollTop;
+    }
+    $('#prog').style.width = (max > 0 ? Math.min(100, scroller.scrollTop / max * 100) : 0) + '%';
+  }
+
+  function enterPrompter() {
+    content.innerHTML = editor.innerHTML;
+    document.body.classList.add('playing');
+    $('#hud').classList.remove('hide'); $('#hudToggle').classList.remove('show');
+    scroller.scrollTop = 0; pos = 0; lastSet = 0;
+    setPlaying(false); apply();
+    cancelAnimationFrame(raf); lastT = performance.now(); raf = requestAnimationFrame(tick);
+    if (document.documentElement.requestFullscreen) { /* iPad Safari tab only; ignored if unsupported */ }
+  }
+  function exitPrompter() {
+    cancelCountdown(); setPlaying(false); unlock();
+    cancelAnimationFrame(raf);
+    document.body.classList.remove('playing');
+  }
+
+  $('#bPlayEdit').addEventListener('click', enterPrompter);
+  $('#bBack').addEventListener('click', exitPrompter);
+  $('#bPlay').addEventListener('click', togglePlay);
+  $('#bRestart').addEventListener('click', () => { cancelCountdown(); setPlaying(false); scroller.scrollTop = 0; pos = 0; });
+  $('#bHide').addEventListener('click', () => { $('#hud').classList.add('hide'); $('#hudToggle').classList.add('show'); });
+  $('#hudToggle').addEventListener('click', () => { $('#hud').classList.remove('hide'); $('#hudToggle').classList.remove('show'); });
+
+  // tap the text to play / pause; dragging scrolls manually
+  scroller.addEventListener('click', togglePlay);
+  scroller.addEventListener('touchstart', () => { touching = true; }, { passive: true });
+  const endTouch = () => { touching = false; pos = scroller.scrollTop; lastSet = scroller.scrollTop; };
+  scroller.addEventListener('touchend', endTouch, { passive: true });
+  scroller.addEventListener('touchcancel', endTouch, { passive: true });
+
+  // keyboard / Bluetooth pedal friendly
+  document.addEventListener('keydown', e => {
+    if (!document.body.classList.contains('playing')) return;
+    const k = e.key;
+    if (k === ' ' || k === 'Enter') { e.preventDefault(); togglePlay(); }
+    else if (k === 'ArrowUp')   { e.preventDefault(); S.speed = Math.min(400, S.speed + 5); apply(); }
+    else if (k === 'ArrowDown') { e.preventDefault(); S.speed = Math.max(5, S.speed - 5); apply(); }
+    else if (k === '+' || k === '=') { S.size = Math.min(220, S.size + 4); apply(); }
+    else if (k === '-') { S.size = Math.max(24, S.size - 4); apply(); }
+    else if (k === 'Escape') exitPrompter();
+  });
+
+  apply();
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>
