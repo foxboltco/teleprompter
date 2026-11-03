@@ -47,7 +47,7 @@ body.playing #prompter{display:block}
 #stage{position:absolute;inset:0}
 #scroller{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
 #scroller::-webkit-scrollbar{display:none}
-#column{width:calc(var(--width) * 1vw);margin:0 auto;padding:38vh 0 90vh}
+#column{position:relative;width:calc(var(--width) * 1vw);margin:0 auto;padding:38vh 0 90vh}
 #content{font-family:var(--font);font-size:calc(var(--size) * 1px);line-height:var(--lh);
   color:#fff;overflow-wrap:break-word}
 #content h1{font-size:1.4em;margin:.3em 0}
@@ -74,6 +74,19 @@ body.playing #prompter{display:block}
 #hudToggle{position:fixed;right:14px;top:max(14px,env(safe-area-inset-top));z-index:25;
   background:rgba(44,44,46,.85);border-radius:50%;width:48px;height:48px;padding:0;font-size:22px;display:none}
 #hudToggle.show{display:block}
+#content .w.done{opacity:.42}
+#vChip{position:fixed;left:14px;top:max(14px,env(safe-area-inset-top));z-index:25;display:none;align-items:center;gap:8px;
+  background:rgba(28,28,30,.8);border-radius:20px;padding:8px 14px;font-size:14px;color:#fff}
+#vChip.show{display:flex}
+#vChip i{width:10px;height:10px;border-radius:50%;background:#ff453a;display:inline-block}
+#vChip.hear i{background:#30d158}
+#hud .g-only,#hud .f-only,#hud .v-only{display:none}
+#hud[data-voice="gate"] .g-only,#hud[data-voice="follow"] .f-only{display:block}
+#hud:not([data-voice="off"]) .v-only{display:block}
+#hud[data-voice="follow"] .a-only{display:none}
+#meter{position:relative;height:10px;border-radius:5px;background:#3a3a3c;overflow:hidden;margin-top:6px}
+#meter i{position:absolute;left:0;top:0;bottom:0;width:0;background:#30d158}
+#meter u{position:absolute;top:0;bottom:0;width:2px;background:#ffd60a;left:0}
 </style>
 </head>
 <body>
@@ -121,6 +134,7 @@ body.playing #prompter{display:block}
     <div id="count"></div>
   </div>
   <div id="prog"></div>
+  <div id="vChip"><i></i><span id="vChipTxt">Listening</span></div>
   <button id="hudToggle">⚙︎</button>
   <div id="hud">
     <div class="row">
@@ -135,11 +149,19 @@ body.playing #prompter{display:block}
       <button id="bHide">⌄</button>
     </div>
     <div class="grid">
-      <div><label>Speed <b id="vSpeed"></b></label><input type="range" id="sSpeed" min="5" max="400" step="1"></div>
+      <div><label>Scroll mode</label><select id="voiceSel" style="width:100%">
+        <option value="off">Auto speed</option>
+        <option value="follow">Follow my words</option>
+        <option value="gate">Scroll while I talk</option>
+      </select></div>
+      <div class="a-only"><label>Speed <b id="vSpeed"></b></label><input type="range" id="sSpeed" min="5" max="400" step="1"></div>
       <div><label>Text size <b id="vSize"></b></label><input type="range" id="sSize" min="24" max="220" step="1"></div>
       <div><label>Column width <b id="vWidth"></b></label><input type="range" id="sWidth" min="25" max="100" step="1"></div>
       <div><label>Line spacing <b id="vLh"></b></label><input type="range" id="sLh" min="1" max="2.2" step="0.05"></div>
       <div><label>Font</label><select id="fontSel" style="width:100%"></select></div>
+      <div class="g-only"><label>Mic sensitivity <b id="vSens"></b></label><input type="range" id="sSens" min="1" max="10" step="1"><div id="meter"><i></i><u></u></div></div>
+      <div class="f-only"><label>Speech language</label><select id="langSel" style="width:100%"></select></div>
+      <div class="v-only" style="grid-column:1/-1"><label>Voice status</label><div id="vStatus" style="font-size:15px;min-height:20px;color:#ddd"></div></div>
     </div>
   </div>
 </div>
@@ -166,7 +188,9 @@ body.playing #prompter{display:block}
     ['System (San Francisco)', '-apple-system, system-ui, sans-serif'],
   ];
   const DEFAULTS = { font: FONTS[0][1], size: 72, width: 80, speed: 60, lh: 1.4,
-                     mirror: false, flip: false, guide: true, countdown: true };
+                     mirror: false, flip: false, guide: true, countdown: true,
+                     voice: 'off', sens: 5,
+                     lang: (navigator.language && navigator.language.includes('-')) ? navigator.language : 'en-US' };
   let S = { ...DEFAULTS };
   try { S = { ...DEFAULTS, ...JSON.parse(localStorage.getItem('tp_settings') || '{}') }; } catch (e) {}
   const saveSettings = () => { try { localStorage.setItem('tp_settings', JSON.stringify(S)); } catch (e) {} };
@@ -202,9 +226,13 @@ body.playing #prompter{display:block}
     $('#tFlip').classList.toggle('on', S.flip);
     $('#tGuide').classList.toggle('on', S.guide);
     $('#tCount').classList.toggle('on', S.countdown);
+    $('#voiceSel').value = S.voice; $('#hud').dataset.voice = S.voice;
+    $('#sSens').value = S.sens; $('#vSens').textContent = S.sens;
+    $('#langSel').value = S.lang;
+    updateBtn();
     saveSettings();
   }
-  [['sSpeed','speed'],['sSize','size'],['sWidth','width'],['sLh','lh']].forEach(([id, key]) =>
+  [['sSpeed','speed'],['sSize','size'],['sWidth','width'],['sLh','lh'],['sSens','sens']].forEach(([id, key]) =>
     $('#' + id).addEventListener('input', e => { S[key] = parseFloat(e.target.value); apply(); }));
   [['tMirror','mirror'],['tFlip','flip'],['tGuide','guide'],['tCount','countdown']].forEach(([id, key]) =>
     $('#' + id).addEventListener('click', () => { S[key] = !S[key]; apply(); }));
@@ -263,19 +291,224 @@ body.playing #prompter{display:block}
   editor.innerHTML = stored !== null ? stored :
     '<h1>Welcome to Prompter</h1><div>Replace this text with your script. Use the toolbar for <b>bold</b>, <i>italic</i>, <u>underline</u>, colors and highlights.</div><div><br></div><div>Tap <b>▶ Prompter</b>, then tap the text (or press Space on a keyboard) to start scrolling.</div>';
 
+  /* ---------- voice control ---------- */
+  const LANGS = [['en-US','English (US)'],['en-GB','English (UK)'],['en-AU','English (Australia)'],['en-CA','English (Canada)'],
+    ['es-ES','Español (España)'],['es-MX','Español (México)'],['fr-FR','Français'],['de-DE','Deutsch'],['it-IT','Italiano'],
+    ['pt-BR','Português (Brasil)'],['nl-NL','Nederlands']];
+  if (!LANGS.some(l => l[0] === S.lang)) LANGS.unshift([S.lang, S.lang]);
+  LANGS.forEach(([code, name]) => {
+    const o = document.createElement('option'); o.value = code; o.textContent = name; $('#langSel').appendChild(o);
+  });
+  $('#langSel').addEventListener('change', e => { S.lang = e.target.value; apply(); });
+
+  let words = [], cursor = 0, shown = 0, misses = 0;
+  let rec = null, recWant = false, recStarts = [];
+  let audioCtx = null, micStream = null, analyser = null, micBuf = null, micOn = false, voiceTok = 0;
+  let floor = 0.01, level = 0, gate = 0, speakUntil = 0, calUntil = 0, calSum = 0, calN = 0;
+  const vNote = m => { $('#vStatus').textContent = m; };
+  const hearing = on => { $('#vChip').classList.toggle('hear', !!on); };
+
+  $('#voiceSel').addEventListener('change', e => {
+    setPlaying(false); cursor = 0; markTo(0);
+    S.voice = e.target.value; apply();
+    vNote(S.voice === 'follow' ? 'Tap Listen, then start reading from the highlighted line. The script follows your words.'
+        : S.voice === 'gate' ? 'Tap Listen. The script scrolls while you talk and pauses when you stop.' : '');
+  });
+
+  const norm = s => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+
+  function buildWords() {
+    words = []; cursor = 0; shown = 0;
+    const tw = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+    const nodes = []; while (tw.nextNode()) nodes.push(tw.currentNode);
+    for (const n of nodes) {
+      const txt = n.nodeValue;
+      if (!/[\p{L}\p{N}]/u.test(txt)) continue;
+      const frag = document.createDocumentFragment();
+      txt.split(/(\s+|[-‐-―\/]+)/).forEach(part => {
+        if (!part) return;
+        const k = norm(part);
+        if (k) {
+          const s = document.createElement('span'); s.className = 'w'; s.textContent = part;
+          frag.appendChild(s); words.push({ el: s, k });
+        } else frag.appendChild(document.createTextNode(part));
+      });
+      n.parentNode.replaceChild(frag, n);
+    }
+  }
+  function markTo(idx) {
+    idx = Math.max(0, Math.min(words.length, idx));
+    while (shown < idx) words[shown++].el.classList.add('done');
+    while (shown > idx) words[--shown].el.classList.remove('done');
+  }
+  function syncCursor() {            // put the cursor on the word at the guide line
+    if (!words.length) return;
+    const y = scroller.scrollTop + window.innerHeight * 0.38;
+    let lo = 0, hi = words.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (words[mid].el.offsetTop < y - 1) lo = mid + 1; else hi = mid; }
+    cursor = lo; markTo(cursor);
+  }
+
+  const same = (a, b) => a === b || (a.length >= 4 && b.length >= 4 && (a.startsWith(b) || b.startsWith(a)));
+
+  // tail = the most recent spoken words (normalised), newest last. Returns true if the cursor moved/confirmed.
+  function matchSpoken(tail) {
+    if (!words.length || !tail.length) return false;
+    const wide = misses >= 6;                       // lost for a while: search the whole script
+    const lo = wide ? 0 : Math.max(0, cursor - 30);
+    const hi = wide ? words.length - 1 : Math.min(words.length - 1, cursor + 60);
+    let best = -1, bestLen = 0, bestDist = 1e9;
+    for (let p = lo; p <= hi; p++) {
+      let m = 0;
+      while (m < tail.length && p - m >= 0 && same(words[p - m].k, tail[tail.length - 1 - m])) m++;
+      if (!m) continue;
+      const d = Math.abs(p - cursor);
+      if (m > bestLen || (m === bestLen && d < bestDist)) { best = p; bestLen = m; bestDist = d; }
+    }
+    if (best < 0) return false;
+    const d = best - cursor;
+    const ok = bestLen >= 3 ||
+      (!wide && bestLen === 2 && d >= -3 && d <= 15) ||
+      (!wide && bestLen === 1 && d > 0 && d <= 5 && words[best].k.length >= 4);
+    if (!ok) return false;
+    cursor = best; markTo(cursor);
+    return true;
+  }
+
+  function handleResult(e) {
+    let txt = '';
+    for (let i = Math.max(0, e.resultIndex - 1); i < e.results.length; i++) txt += ' ' + e.results[i][0].transcript;
+    const raw = txt.trim().split(/\s+/).filter(Boolean);
+    const tail = raw.slice(-8).map(norm).filter(Boolean);
+    vNote('Heard: …' + raw.slice(-8).join(' '));
+    hearing(true);
+    if (matchSpoken(tail)) misses = 0; else misses++;
+  }
+
+  function followStep(dt, max) {
+    const w = words[cursor]; if (!w) return;
+    const L = S.size * S.lh;
+    const frac = Math.max(0, Math.min(1, w.el.offsetLeft / ($('#column').clientWidth || 1)));
+    const target = Math.max(0, Math.min(max, w.el.offsetTop - window.innerHeight * 0.38 + (frac - 0.5) * L));
+    const diff = target - pos;
+    if (Math.abs(diff) < 0.5) return;
+    if (Math.abs(diff) > window.innerHeight * 2) { pos = target; return; }   // big jump: snap
+    let step = diff * (1 - Math.exp(-dt * 5));
+    const cap = 2500 * dt;
+    pos += Math.max(-cap, Math.min(cap, step));
+  }
+
+  function fallbackToMic(msg) {
+    stopVoice(); setPlaying(false);
+    S.voice = 'gate'; apply();
+    vNote(msg + ' Switched to “scroll while I talk” mode. Tap Listen to start it.');
+  }
+
+  function startFollow() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { fallbackToMic('Speech recognition isn’t available in this browser.'); return; }
+    recWant = true; misses = 0; recStarts = [];
+    rec = new SR(); rec.continuous = true; rec.interimResults = true; rec.lang = S.lang;
+    rec.onstart = () => vNote('Listening… start reading the script.');
+    rec.onresult = handleResult;
+    rec.onerror = ev => {
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed')
+        fallbackToMic('Speech recognition was blocked (check Settings ▸ Safari ▸ Microphone, and Settings ▸ General ▸ Keyboard ▸ Enable Dictation).');
+      else if (ev.error === 'network')
+        fallbackToMic('Speech recognition needs an internet connection.');
+    };
+    rec.onend = () => {
+      hearing(false);
+      if (!recWant) return;
+      const now = Date.now(); recStarts = recStarts.filter(t => now - t < 5000); recStarts.push(now);
+      if (recStarts.length > 6) { fallbackToMic('Speech recognition keeps stopping.'); return; }
+      setTimeout(() => { if (recWant && rec) { try { rec.start(); } catch (e) {} } }, 200);
+    };
+    try { rec.start(); } catch (e) { fallbackToMic('Couldn’t start speech recognition.'); return; }
+    setPlaying(true);
+  }
+
+  async function startGate() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { vNote('This browser can’t use the microphone.'); setPlaying(false); return; }
+    const tok = ++voiceTok;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    try {
+      audioCtx = new AC(); if (audioCtx.resume) audioCtx.resume();   // created inside the tap so iOS allows it
+      vNote('Requesting microphone…');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      if (tok !== voiceTok) { stream.getTracks().forEach(t => t.stop()); return; }
+      micStream = stream;
+      analyser = audioCtx.createAnalyser(); analyser.fftSize = 1024;
+      audioCtx.createMediaStreamSource(stream).connect(analyser);
+      micBuf = new Uint8Array(analyser.fftSize);
+      level = 0; gate = 0; speakUntil = 0; calSum = 0; calN = 0; calUntil = performance.now() + 700; floor = 0.01;
+      micOn = true; setPlaying(true);
+      vNote('Calibrating to room noise — stay quiet for a second…');
+    } catch (err) {
+      if (tok !== voiceTok) return;
+      stopVoice(); setPlaying(false);
+      vNote(err && err.name === 'NotAllowedError'
+        ? 'Microphone access was denied. Allow it when prompted, or enable it in Settings ▸ Safari ▸ Microphone, then try again.'
+        : 'Couldn’t start the microphone: ' + (err && err.message ? err.message : err));
+    }
+  }
+
+  function sampleMic(t, dt) {
+    if (!analyser) return;
+    analyser.getByteTimeDomainData(micBuf);
+    let s = 0; for (let i = 0; i < micBuf.length; i++) { const v = (micBuf[i] - 128) / 128; s += v * v; }
+    const rms = Math.sqrt(s / micBuf.length);
+    level = level * 0.6 + rms * 0.4;
+    if (t < calUntil) {
+      calSum += rms; calN++;
+    } else {
+      if (calN) { floor = Math.max(0.003, calSum / calN); calN = 0; calSum = 0; vNote('Listening — start talking.'); }
+      const speaking = t < speakUntil;
+      if (rms < floor) floor = floor * 0.9 + rms * 0.1;
+      else if (!speaking) floor += (rms - floor) * Math.min(1, dt * 0.3);
+      const thr = Math.max(0.01, floor * (4.5 - 0.35 * S.sens) + 0.004);
+      if (level > thr) speakUntil = t + 500;
+      const target = t < speakUntil ? 1 : 0;
+      gate += (target - gate) * Math.min(1, dt * (target ? 8 : 9));
+      hearing(target);
+      $('#meter u').style.left = Math.min(100, thr / 0.25 * 100) + '%';
+    }
+    $('#meter i').style.width = Math.min(100, level / 0.25 * 100) + '%';
+  }
+
+  function stopVoice() {
+    voiceTok++; recWant = false;
+    if (rec) { try { rec.onend = rec.onresult = rec.onerror = rec.onstart = null; rec.abort(); } catch (e) {} rec = null; }
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    if (audioCtx) { try { audioCtx.close(); } catch (e) {} audioCtx = null; }
+    analyser = null; micOn = false; gate = 0;
+    hearing(false); $('#meter i').style.width = '0';
+  }
+  function startVoice() {
+    syncCursor();
+    if (S.voice === 'follow') startFollow(); else startGate();
+  }
+
   /* ---------- prompter engine ---------- */
   let playing = false, pos = 0, lastT = 0, raf = 0, touching = false, lastSet = 0, cd = null, wl = null;
 
   async function lock() { try { if (navigator.wakeLock) wl = await navigator.wakeLock.request('screen'); } catch (e) {} }
   function unlock() { try { wl && wl.release(); } catch (e) {} wl = null; }
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && document.body.classList.contains('playing')) lock();
+    if (document.visibilityState === 'hidden' && S.voice !== 'off' && playing) setPlaying(false);   // iOS cuts the mic anyway
+    if (document.visibilityState === 'visible' && document.body.classList.contains('playing') && playing) lock();
   });
 
   function setPlaying(v) {
     playing = v;
-    $('#bPlay').textContent = v ? '⏸ Pause' : '▶ Play';
+    if (!v) stopVoice();
+    updateBtn();
+    $('#vChip').classList.toggle('show', v && S.voice !== 'off');
     if (v) lock();
+  }
+  function updateBtn() {
+    const voice = S.voice !== 'off';
+    $('#bPlay').textContent = playing ? (voice ? '⏹ Stop' : '⏸ Pause') : (voice ? '🎙 Listen' : '▶ Play');
   }
   function cancelCountdown() {
     if (cd) { clearInterval(cd); cd = null; $('#count').style.display = 'none'; return true; }
@@ -284,6 +517,7 @@ body.playing #prompter{display:block}
   function startPlay() {
     const max = scroller.scrollHeight - scroller.clientHeight;
     if (scroller.scrollTop >= max - 2) { scroller.scrollTop = 0; pos = 0; }
+    if (S.voice !== 'off') { startVoice(); return; }
     if (S.countdown && scroller.scrollTop < 5) {
       let n = 3; const c = $('#count'); c.style.display = 'flex'; c.textContent = n;
       cd = setInterval(() => {
@@ -303,12 +537,19 @@ body.playing #prompter{display:block}
     raf = requestAnimationFrame(tick);
     const dt = Math.min((t - lastT) / 1000, 0.1); lastT = t;
     const max = scroller.scrollHeight - scroller.clientHeight;
+    if (micOn) sampleMic(t, dt);
     if (touching || !playing) {
       pos = scroller.scrollTop;
     } else {
-      if (Math.abs(scroller.scrollTop - lastSet) > 2) pos = scroller.scrollTop; // user scrolled
-      pos += S.speed * dt;
-      if (pos >= max) { pos = max; setPlaying(false); }
+      if (Math.abs(scroller.scrollTop - lastSet) > 2) {            // user scrolled by hand
+        pos = scroller.scrollTop;
+        if (S.voice === 'follow') syncCursor();
+      }
+      if (S.voice === 'follow') followStep(dt, max);
+      else {
+        pos += S.speed * (S.voice === 'gate' ? gate : 1) * dt;
+        if (pos >= max) { pos = max; setPlaying(false); }
+      }
       scroller.scrollTop = pos;
       lastSet = scroller.scrollTop;
     }
@@ -317,6 +558,7 @@ body.playing #prompter{display:block}
 
   function enterPrompter() {
     content.innerHTML = editor.innerHTML;
+    buildWords();
     document.body.classList.add('playing');
     $('#hud').classList.remove('hide'); $('#hudToggle').classList.remove('show');
     scroller.scrollTop = 0; pos = 0; lastSet = 0;
@@ -333,7 +575,7 @@ body.playing #prompter{display:block}
   $('#bPlayEdit').addEventListener('click', enterPrompter);
   $('#bBack').addEventListener('click', exitPrompter);
   $('#bPlay').addEventListener('click', togglePlay);
-  $('#bRestart').addEventListener('click', () => { cancelCountdown(); setPlaying(false); scroller.scrollTop = 0; pos = 0; });
+  $('#bRestart').addEventListener('click', () => { cancelCountdown(); setPlaying(false); scroller.scrollTop = 0; pos = 0; cursor = 0; markTo(0); });
   $('#bHide').addEventListener('click', () => { $('#hud').classList.add('hide'); $('#hudToggle').classList.add('show'); });
   $('#hudToggle').addEventListener('click', () => { $('#hud').classList.remove('hide'); $('#hudToggle').classList.remove('show'); });
 
